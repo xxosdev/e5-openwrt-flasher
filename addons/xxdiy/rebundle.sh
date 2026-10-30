@@ -46,8 +46,16 @@ done
 OUT_ZIP=$(mkdir -p "$(dirname "$OUT_ZIP")" && cd "$(dirname "$OUT_ZIP")" && printf '%s/%s' "$PWD" "$(basename "$OUT_ZIP")")
 
 TMP=$XXDIY_WORK/rebundle
-rm -rf "$TMP"
-mkdir -p "$TMP"
+# build.sh 要 root（loop 挂载），它建出来的 work/ 属于 root；而 rebundle.sh
+# 本身不需要 root，普通用户就写不进去。这种情况退到系统临时目录。
+if ! mkdir -p "$TMP" 2>/dev/null || [ ! -w "$TMP" ]; then
+    TMP=$(mktemp -d "${TMPDIR:-/tmp}/e5-xxdiy-rebundle.XXXXXX") \
+        || die "建不了临时目录（$XXDIY_WORK 不可写，mktemp 也失败）"
+    warn "$XXDIY_WORK 不可写（build.sh 是 sudo 跑的？），临时目录改用 $TMP"
+fi
+rm -rf "$TMP" 2>/dev/null || true
+mkdir -p "$TMP" || die "建不了临时目录 $TMP"
+trap 'rm -rf "$TMP" 2>/dev/null || true' EXIT
 
 # ---- 1. 解包 -------------------------------------------------------------
 step "1/6 解包上游刷机包"
