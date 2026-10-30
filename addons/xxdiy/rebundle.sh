@@ -135,8 +135,13 @@ python3 "$HERE/lib/sums.py" "$TOPDIR" || die "重算 SHA256SUMS 失败"
 # ---- 6. 打包 -------------------------------------------------------------
 step "6/6 打包"
 rm -f "$OUT_ZIP"
-# -n 让已经压过的东西（ext4.gz / 图片）直接 store，省一遍无用功
-( cd "$TMP" && zip -q -r -X -n .gz:.zip:.apk:.png:.webp:.jpg:.jpeg:.img "$OUT_ZIP" "$NEW_TOP" ) \
+# -n 让已经压过的东西直接 store，省一遍无用功。
+# 只列真正压不动的：.gz（ext4.gz 本身就是 gzip）、.zip、.apk（ADB 容器）。
+# ⚠ 千万别把 .img 放进来：boot.img 是 Android boot 镜像，里面有大量填充，
+#   压缩率很高。第一版误加了 .img，产物 353 MB（上游才 167 MB），
+#   去掉之后降到 200 MB 上下。设备端网页升级要把整个包解到 userdata，
+#   这个体积直接关系到能不能装得下。
+( cd "$TMP" && zip -q -r -X -n .gz:.zip:.apk:.png:.webp:.jpg:.jpeg "$OUT_ZIP" "$NEW_TOP" ) \
     || die "打包失败"
 [ -s "$OUT_ZIP" ] || die "打包后输出为空"
 
