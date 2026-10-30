@@ -1,0 +1,17 @@
+E5 kernel 6.18.54-e5-sleep14-charles builds these into the kernel image (=y),
+so they never appear in lsmod:
+
+    CONFIG_NFT_TPROXY=y
+    CONFIG_NFT_SOCKET=y
+    CONFIG_NFT_REDIR=y
+    CONFIG_NF_NAT=y
+    CONFIG_IP_SET=y
+
+passwall2's LuCI pages decide whether transparent proxy is available by grepping
+lsmod, so with =y they would wrongly report "Missing components" and hide the
+TCP Proxy Way selector. addons/xxdiy patches those two checks to also accept
+this file's presence.
+
+The patch is in addons/xxdiy/plugins/passwall2/patch/tproxy-detect.py.
+Delete this file to go back to passwall2's stock lsmod check (do that only if
+the kernel ever switches these back to =m).

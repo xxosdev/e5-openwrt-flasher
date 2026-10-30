@@ -1,0 +1,12 @@
+# 下载下来的 apk、基座 rootfs、中间产物 —— 都不进仓库
+cache/
+work/
+
+# 产物
+*.ext4
+*.ext4.gz
+*.zip
+
+# Python 的字节码
+__pycache__/
+*.pyc

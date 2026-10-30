@@ -1,0 +1,29 @@
+#!/bin/sh
+# /etc/uci-defaults/zz-xxdiy
+#
+# 名字故意以 zz 开头：uci-defaults 是按文件名顺序跑的，
+# luci-app-passwall2 自己的那份叫 luci-app-passwall2（l > 9），
+# 用 98-xxdiy 会抢在它前面，所以这里用 zz 保证最后跑。
+#
+# 只做一件事：把 Lua 补丁依赖的哨兵文件补回来。
+# 内核把 NFT_TPROXY / NFT_REDIR 编成了 =y，lsmod 里看不到，passwall2 会误判
+# 「缺组件」；补丁靠这个文件放行。首次启动和每次 --update 之后都会跑一次。
+#
+# 故意不碰 passwall2 的 uci 配置：
+#   app.sh 里 ENABLED=$(config_n_get @global[0] enabled 0)，没设就是 0（不启用）。
+#   默认启用而没配节点时，它会把 53 端口全劫持过去，整机 DNS 直接死掉
+#   （ping 域名 bad address，ping IP 正常）。让用户配好节点自己在界面里打开。
+
+set -e
+
+mkdir -p /etc/e5/xxdiy
+if [ ! -f /etc/e5/xxdiy/nft-tproxy-builtin ]; then
+	echo "xxdiy: restoring the nft_tproxy builtin sentinel" >&2
+	cat > /etc/e5/xxdiy/nft-tproxy-builtin <<-'EOF'
+		nft_tproxy / nft_socket / nft_redir are built into the E5 kernel (=y),
+		so lsmod does not list them. addons/xxdiy patches passwall2's two
+		lsmod checks to also accept this file. See /etc/e5/e5-xxdiy.release.
+	EOF
+fi
+
+exit 0

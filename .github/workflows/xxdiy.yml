@@ -1,0 +1,188 @@
+name: xxdiy build
+
+# 只手动触发。上游刷机包是作者在真机上验过的，这里不重新编译内核和 rootfs，
+# 只做「拿上游包当基座 -> 装 xxdiy 插件 -> 重打包」，几分钟出结果。
+# 详见 addons/xxdiy/README.md。
+
+on:
+  workflow_dispatch:
+    inputs:
+      base_tag:
+        description: '上游刷机包的 tag（CharlesGool/e5-openwrt-flasher）'
+        required: true
+        default: 'e5-sleep14'
+        type: string
+      base_zip:
+        description: '直接指定上游 zip 的 URL（留空则按 base_tag 自动找）'
+        required: false
+        default: ''
+        type: string
+      vanilla:
+        description: '同时产出「原版转存包」（上游 zip 原样另存，不装插件）'
+        required: false
+        default: false
+        type: boolean
+      publish:
+        description: '建 draft Release（真机验过再手动 Publish）'
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+
+concurrency:
+  group: xxdiy-${{ inputs.base_tag }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    env:
+      BASE_TAG: ${{ inputs.base_tag }}
+
+    steps:
+      - name: 取代码
+        uses: actions/checkout@v4
+
+      - name: 装依赖
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends \
+            e2fsprogs zip unzip curl ca-certificates python3
+          df -h /
+
+      # apk 是 arm64 的，容器里要能跑起来
+      - name: 准备 arm64 模拟
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
+
+      - name: 定版本号
+        run: |
+          set -euo pipefail
+          echo "XXDIY_TAG=xxdiy.$(date -u +%Y%m%d)" >> "$GITHUB_ENV"
+
+      - name: 下载上游刷机包
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          URL="${{ inputs.base_zip }}"
+          if [ -z "$URL" ]; then
+            URL=$(gh api "repos/CharlesGool/e5-openwrt-flasher/releases/tags/$BASE_TAG" \
+                    --jq '.assets[] | select(.name | endswith(".zip")) | .browser_download_url' | head -1)
+          fi
+          [ -n "$URL" ] || { echo "::error::找不到 $BASE_TAG 的 zip"; exit 1; }
+          echo "上游包：$URL"
+          curl -fL --retry 5 --retry-delay 5 --retry-all-errors --connect-timeout 30 \
+               -o "dist/upstream.zip" "$URL"
+          ls -la dist/
+          unzip -tq dist/upstream.zip || { echo "::error::上游 zip 不完整"; exit 1; }
+
+      - name: 看看上游包的结构
+        run: |
+          set -euo pipefail
+          echo "--- 顶层 ---"
+          unzip -Z1 dist/upstream.zip | grep -E '^[^/]+/' | cut -d/ -f1 | sort -u
+          echo "--- files/ ---"
+          unzip -Z1 dist/upstream.zip | grep -E '^[^/]+/files/' | sort
+          echo "--- 顶层文件 ---"
+          unzip -Z1 dist/upstream.zip | grep -vE '/.+/' | sort
+
+      - name: 下载 passwall2 的 apk
+        run: |
+          set -euo pipefail
+          bash addons/xxdiy/plugins/passwall2/fetch.sh
+
+      - name: 打插件（换 dnsmasq-full、装 xray、打 Lua 补丁）
+        run: |
+          set -euo pipefail
+          sudo -E bash addons/xxdiy/build.sh dist/upstream.zip dist/openwrt.ext4.gz
+
+      - name: 重打包刷机包（换 ext4、改 VERSION、重算 SHA256SUMS）
+        run: |
+          set -euo pipefail
+          VER=$(sed -n 's/^XXDIY_NEW_VER=//p' dist/build-info.env | head -1)
+          [ -n "$VER" ] || { echo "::error::build-info.env 里没有版本号"; exit 1; }
+          echo "XXDIY_VER=$VER" >> "$GITHUB_ENV"
+          echo "XXDIY_BASE_VER=$(sed -n 's/^XXDIY_BASE_VER=//p' dist/build-info.env | head -1)" >> "$GITHUB_ENV"
+          OUT="dist/Openwrt_E5_Flasher_${VER##*+}.zip"
+          bash addons/xxdiy/rebundle.sh dist/upstream.zip dist/openwrt.ext4.gz "$OUT" "$VER"
+          echo "XXDIY_OUT=$OUT" >> "$GITHUB_ENV"
+
+      - name: 原版转存（可选）
+        if: ${{ inputs.vanilla }}
+        run: |
+          set -euo pipefail
+          # 注意：这不是「从源码编原版」，是把上游包原样另存一份，
+          # 用来证明这条流水线没有把上游包弄坏，也给刷机留个退路。
+          cp -f dist/upstream.zip "dist/Openwrt_E5_Flasher_${BASE_TAG}-vanilla.zip"
+          ls -la dist/
+
+      - name: 汇总
+        run: |
+          set -euo pipefail
+          {
+            echo "## xxdiy 构建结果"
+            echo ""
+            echo "| 项 | 值 |"
+            echo "|---|---|"
+            echo "| 上游 tag | \`$BASE_TAG\` |"
+            echo "| 基座版本 | \`${XXDIY_BASE_VER:-?}\` |"
+            echo "| 新版本号 | \`$XXDIY_VER\` |"
+            echo "| 插件 | \`$(sed -n 's/^XXDIY_PLUGINS=//p' dist/build-info.env)\` |"
+            echo ""
+            echo "### 产物"
+            echo '```'
+            ( cd dist && sha256sum *.zip 2>/dev/null || true )
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          cat "$GITHUB_STEP_SUMMARY"
+
+      - name: 上传 artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: e5-flasher-${{ env.XXDIY_TAG }}
+          path: dist/Openwrt_E5_Flasher_*.zip
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: 建 draft Release
+        if: ${{ inputs.publish }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TAG="$XXDIY_TAG"
+          cat > dist/RELEASE.md <<EOF
+          **xxdiy 扩展包**：上游 \`$BASE_TAG\` + 插件（$(sed -n 's/^XXDIY_PLUGINS=//p' dist/build-info.env)）
+
+          - 基座：\`${XXDIY_BASE_VER:-?}\`
+          - 版本号：\`$XXDIY_VER\`
+          - 内核和 boot.img 与上游一致，没有改动
+          - 插件清单和做法见仓库里的 \`addons/xxdiy/README.md\`
+
+          > [!WARNING]
+          > **强烈建议刷到内置存储，不要刷到 SD 卡。** 装到内置存储请运行
+          > \`install-userdata.cmd\`（Windows）或 \`bash install-userdata.sh\`（macOS / Linux）。
+
+          > [!IMPORTANT]
+          > passwall2 装好之后**默认是关着的**。先在 LuCI 里配好节点，再打开总开关——
+          > 没配节点就打开会把它接管 53 端口，整机 DNS 会解析不了（ping 域名 bad address，ping IP 正常）。
+
+          ### 校验
+          \`\`\`
+          $( cd dist && sha256sum *.zip )
+          \`\`\`
+          EOF
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG 已存在，改成覆盖上传"
+          else
+            gh release create "$TAG" --draft --title "$TAG" --notes-file dist/RELEASE.md
+          fi
+          gh release upload "$TAG" dist/Openwrt_E5_Flasher_*.zip --clobber
+          echo "草稿 Release：$TAG（到 Releases 页面检查后手动 Publish）"
