@@ -63,7 +63,8 @@ jobs:
       - name: 定版本号
         run: |
           set -euo pipefail
-          echo "XXDIY_TAG=xxdiy.$(date -u +%Y%m%d)" >> "$GITHUB_ENV"
+          # runner 是 UTC，用北京时间算日期，免得晚上跑出来是前一天
+          echo "XXDIY_TAG=xxdiy.$(TZ=Asia/Shanghai date +%Y%m%d)" >> "$GITHUB_ENV"
 
       - name: 下载上游刷机包
         env:

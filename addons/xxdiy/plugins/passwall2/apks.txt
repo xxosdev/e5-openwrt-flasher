@@ -3,13 +3,20 @@
 # 这个插件要装进镜像的 apk 清单。fetch.sh 按这里的字节数和 sha256 校验，
 # 任何一个对不上就中止——宁可不出包，也不出一个来源不明的包。
 #
-# 来源：Openwrt-Passwall 官方构建产物
+# 来源：Openwrt-Passwall 官方构建产物（sourceforge）
 #   https://master.dl.sourceforge.net/project/openwrt-passwall-build/releases/packages-25.12/aarch64_generic/
+#
+# ⚠ 那个目录下面还分了子目录，apk 不在根上：
+#     passwall2/          luci-app-passwall2、各语言包
+#     passwall_luci/      passwall（一代）的界面，不要
+#     passwall_packages/  各个核心和小工具
+#   少了这一层就是 404（第一次跑 CI 就栽在这）。
+#
 # 只挑 xray 这一条线：xray-core 本体 + geoip/geosite 数据 + 两个运行时小工具。
 # shadowsocks-rust / shadowsocksr-libev / simple-obfs / v2ray-plugin / haproxy
 # 全部不要（用户明确只要 xray）。
 #
-# 字段：文件名  字节数  sha256
+# 字段：子目录  文件名  字节数  sha256
 #
 # 为什么没有 chinadns-ng：
 #   它只在 passwall2 的「iptables 传统模式」那条路（PACKAGE_*_Iptables_Transparent_Proxy，
@@ -17,19 +24,19 @@
 #   根本走不到那条路，装了纯属占地方。清单里留着注释，将来真要用直接放开。
 
 # LuCI 界面（含中文语言包）
-luci-app-passwall2-26.10.29-r1.apk                    366904  4a19784d3e9f43fa4c087941bff51d0879c6a4c1c4b0fb7a8f22e360a88c76ef
-luci-i18n-passwall2-zh-cn-26.10.29.apk                 21119  cea19ed0fdc329c9024a993ef7dfbd0a03607ebedc38d248981349af90b6666a
+passwall2         luci-app-passwall2-26.10.29-r1.apk                    366904  4a19784d3e9f43fa4c087941bff51d0879c6a4c1c4b0fb7a8f22e360a88c76ef
+passwall2         luci-i18n-passwall2-zh-cn-26.10.29.apk                 21119  cea19ed0fdc329c9024a993ef7dfbd0a03607ebedc38d248981349af90b6666a
 
 # 核心
-xray-core-26.10.29-r1.apk                           10873402  82c3128b3aee10a7eae29a85c6609b1a962111e342807b906db5135b63f994e7
+passwall_packages xray-core-26.10.29-r1.apk                           10873402  82c3128b3aee10a7eae29a85c6609b1a962111e342807b906db5135b63f994e7
 
 # 分流数据（随包走，不走在线更新；见 README 的说明）
-v2ray-geoip-202610290022.1.apk                       3557145  c5be22ddc63debd3d91d5c6571190d1637eb6b6e3d3ee941949acf7965b7c720
-v2ray-geosite-202610282204.1.apk                     3680805  4fd36b41cebffa1dc5929e72488454c7c27636ebc661a0eac04ce4349deb317d
+passwall_packages v2ray-geoip-202610290022.1.apk                       3557145  c5be22ddc63debd3d91d5c6571190d1637eb6b6e3d3ee941949acf7965b7c720
+passwall_packages v2ray-geosite-202610282204.1.apk                     3680805  4fd36b41cebffa1dc5929e72488454c7c27636ebc661a0eac04ce4349deb317d
 
 # 运行时小工具：geoview 是界面里看分流结果的，tcping 是节点的延迟测试
-geoview-0.2.9-r1.apk                                 2984359  c950093450197d54dee1d9859f7bc48c8d03374ddfa1b454b9db16bf02d58479
-tcping-0.3-r1.apk                                       4267  0e81c20209170eab04b4bd54a0cb1a8a7aa8f836f99d20c14bee6b66a2916932
+passwall_packages geoview-0.2.9-r1.apk                                 2984359  c950093450197d54dee1d9859f7bc48c8d03374ddfa1b454b9db16bf02d58479
+passwall_packages tcping-0.3-r1.apk                                       4267  0e81c20209170eab04b4bd54a0cb1a8a7aa8f836f99d20c14bee6b66a2916932
 
 # 仅 iptables 传统模式才需要，E5 用不上：
-# chinadns-ng-2025.08.09-r1.apk                        270122  d2f45d7c927e2c60c263e3fb0933c0d267ec8d58c45825dda0922647bd005635
+# passwall_packages chinadns-ng-2025.08.09-r1.apk                        270122  d2f45d7c927e2c60c263e3fb0933c0d267ec8d58c45825dda0922647bd005635

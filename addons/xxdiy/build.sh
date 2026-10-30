@@ -12,7 +12,7 @@
 #   [输出] 新的 ext4.gz；默认 addons/xxdiy/work/openwrt-<新版本>.ext4.gz
 #
 # 环境变量:
-#   XXDIY_TAG          版本后缀，默认 xxdiy.$(date -u +%Y%m%d)
+#   XXDIY_TAG          版本后缀，默认 xxdiy.<北京日期>
 #   XXDIY_ONLY         只跑这些插件（空格分隔），默认全部
 #   XXDIY_SKIP         跳过这些插件（空格分隔）
 #   XXDIY_BASE_IMAGE   打 apk 用的 arm64 用户态，默认 e5-openwrt-base:25.12.5
@@ -49,7 +49,7 @@ if [ "$(id -u)" != 0 ]; then
     exec sudo -E bash "$0" "$@"
 fi
 
-XXDIY_TAG=${XXDIY_TAG:-xxdiy.$(date -u +%Y%m%d)}
+XXDIY_TAG=${XXDIY_TAG:-xxdiy.$(TZ=Asia/Shanghai date +%Y%m%d)}
 mkdir -p "$XXDIY_CACHE" "$XXDIY_WORK"
 
 IMG=$XXDIY_WORK/base.ext4
