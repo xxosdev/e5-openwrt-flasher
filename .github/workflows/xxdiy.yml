@@ -38,7 +38,7 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-24.04
-    timeout-minutes: 90
+    timeout-minutes: 30
     env:
       BASE_TAG: ${{ inputs.base_tag }}
 
@@ -49,9 +49,22 @@ jobs:
       - name: 装依赖
         run: |
           set -euo pipefail
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq --no-install-recommends \
-            e2fsprogs zip unzip curl ca-certificates python3
+          # ubuntu-24.04 runner 上这些基本都自带，缺了才装，省一次 apt-get update
+          miss=""
+          need_pkg() { command -v "$1" >/dev/null 2>&1 || miss="$miss $2"; }
+          need_pkg e2fsck  e2fsprogs
+          need_pkg zip     zip
+          need_pkg unzip   unzip
+          need_pkg curl    curl
+          need_pkg python3 python3
+          need_pkg pigz    pigz
+          if [ -n "$miss" ]; then
+            echo "runner 上缺：$miss，装一下"
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq --no-install-recommends $miss
+          else
+            echo "依赖齐全，跳过 apt"
+          fi
           df -h /
 
       # apk 是 arm64 的，容器里要能跑起来
@@ -94,6 +107,15 @@ jobs:
           echo "--- 顶层文件 ---"
           unzip -Z1 dist/upstream.zip | grep -vE '/.+/' | sort
 
+      # sourceforge 是整条流水线里最不靠谱的一环（会 404、会超时），
+      # 20 MB 的 apk 缓存下来，重复构建就不用再碰它。key 跟着清单走，
+      # 改了版本号自然失效。缓存里有过期文件也不要紧，fetch.sh 会按 sha256 重下。
+      - name: 缓存 passwall2 的 apk
+        uses: actions/cache@v4
+        with:
+          path: addons/xxdiy/cache/passwall2
+          key: passwall2-apks-${{ hashFiles('addons/xxdiy/plugins/passwall2/apks.txt') }}
+
       - name: 下载 passwall2 的 apk
         run: |
           set -euo pipefail
@@ -121,7 +143,9 @@ jobs:
           set -euo pipefail
           # 注意：这不是「从源码编原版」，是把上游包原样另存一份，
           # 用来证明这条流水线没有把上游包弄坏，也给刷机留个退路。
-          cp -f dist/upstream.zip "dist/Openwrt_E5_Flasher_${BASE_TAG}-vanilla.zip"
+          OUT="dist/Openwrt_E5_Flasher_${BASE_TAG}-vanilla.zip"
+          cp -f dist/upstream.zip "$OUT"
+          echo "XXDIY_VANILLA=$OUT" >> "$GITHUB_ENV"
           ls -la dist/
 
       - name: 汇总
@@ -139,17 +163,31 @@ jobs:
             echo ""
             echo "### 产物"
             echo '```'
-            ( cd dist && sha256sum *.zip 2>/dev/null || true )
+            ( cd dist && sha256sum Openwrt_E5_Flasher_*.zip 2>/dev/null || true )
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
           cat "$GITHUB_STEP_SUMMARY"
 
-      - name: 上传 artifact
+      # 两个包分成两个 artifact，各自单独下载。
+      # 合成一个的话就是一个 350+ MB 的下载，而且 GitHub 会把整个 artifact 再压一遍
+      # （对已经压过的 zip 纯属白费），所以 compression-level: 0 直接 store。
+      - name: 上传 artifact（改版包）
         uses: actions/upload-artifact@v4
         with:
           name: e5-flasher-${{ env.XXDIY_TAG }}
-          path: dist/Openwrt_E5_Flasher_*.zip
+          path: ${{ env.XXDIY_OUT }}
           if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
+
+      - name: 上传 artifact（原版转存）
+        if: ${{ inputs.vanilla }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: e5-flasher-${{ inputs.base_tag }}-vanilla
+          path: ${{ env.XXDIY_VANILLA }}
+          if-no-files-found: error
+          compression-level: 0
           retention-days: 7
 
       - name: 建 draft Release

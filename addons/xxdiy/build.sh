@@ -19,6 +19,7 @@
 #   XXDIY_CACHE        缓存目录，默认 addons/xxdiy/cache
 #   XXDIY_WRT_MIRROR   apk 安装时临时用的源，默认用镜像里原来的官方源
 #   XXDIY_MIN_FREE_MB  镜像里至少留多少 MB 空闲，默认 200
+#   XXDIY_GZIP         压/解 gzip 的命令，默认有 pigz 用 pigz，否则 gzip
 #   XXDIY_FSCK_REPAIR  设 1 则对不干净的 ext4 自动 e2fsck -fy
 #
 # 为什么不用改上游任何文件: 上游 build/make-rootfs-sleepN.sh 的最后一步是
@@ -111,8 +112,8 @@ case "$src" in
         ;;
 esac
 if [ -f "$GZ" ]; then
-    log "解压 ext4.gz（约 2 GB，慢一点）"
-    gzip -dc "$GZ" > "$IMG" || die "解压 $GZ 失败"
+    log "解压 ext4.gz（约 2 GB，用 $(basename "$XXDIY_GZIP")）"
+    "$XXDIY_GZIP" -dc "$GZ" > "$IMG" || die "解压 $GZ 失败"
     rm -f "$GZ"
 fi
 [ -s "$IMG" ] || die "没得到 ext4 镜像"
@@ -195,7 +196,10 @@ trap - EXIT
 step "7/8 重新打包"
 OUTPUT=${OUTPUT:-$XXDIY_WORK/openwrt-$NEW_VER.ext4.gz}
 mkdir -p "$(dirname "$OUTPUT")"
-gzip -9 -n -c "$IMG" > "$OUTPUT" || die "gzip 失败"
+# 2 GB 的 ext4 是整条流水线最慢的一步：单线程 gzip -9 要一分多钟，
+# pigz -9 在 4 核 runner 上大约四分之一的时间。-n 不写文件名和时间戳。
+log "压缩 ext4（用 $(basename "$XXDIY_GZIP")）"
+"$XXDIY_GZIP" -9 -n -c "$IMG" > "$OUTPUT" || die "压缩失败"
 rm -f "$IMG"
 log "输出：$OUTPUT（$(stat -c %s "$OUTPUT") 字节）"
 sha256sum "$OUTPUT" | tee "$OUTPUT.sha256"

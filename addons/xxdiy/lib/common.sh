@@ -20,6 +20,10 @@ XXDIY_WRT_VER=${XXDIY_WRT_VER:-${XXDIY_BASE_IMAGE##*:}}
 # 国内手搓可以设 https://mirrors.ustc.edu.cn/openwrt
 XXDIY_WRT_MIRROR=${XXDIY_WRT_MIRROR:-}
 
+# 压/解 gzip 用哪个命令：有 pigz 就用 pigz（多核，2 GB 的 ext4 快好几倍），
+# 没有就退回 gzip。两者输出都是标准 gzip 流，设备端 busybox 照样能解。
+XXDIY_GZIP=${XXDIY_GZIP:-$(command -v pigz 2>/dev/null || command -v gzip 2>/dev/null || echo gzip)}
+
 # ---- 输出 ----------------------------------------------------------------
 log()  { printf '\033[36m[xxdiy]\033[0m %s\n' "$*"; }
 warn() { printf '\033[33m[xxdiy] 警告\033[0m %s\n' "$*" >&2; }
