@@ -137,10 +137,9 @@ step "6/6 打包"
 rm -f "$OUT_ZIP"
 # -n 让已经压过的东西直接 store，省一遍无用功。
 # 只列真正压不动的：.gz（ext4.gz 本身就是 gzip）、.zip、.apk（ADB 容器）。
-# ⚠ 千万别把 .img 放进来：boot.img 是 Android boot 镜像，里面有大量填充，
-#   压缩率很高。第一版误加了 .img，产物 353 MB（上游才 167 MB），
-#   去掉之后降到 200 MB 上下。设备端网页升级要把整个包解到 userdata，
-#   这个体积直接关系到能不能装得下。
+# boot.img 不放进来：它是 Android boot 镜像，还有压缩空间，store 反而白占几 MB。
+# 参考体积（e5-sleep14 + passwall2）：改版包 186 MB，上游原版包 167 MB。
+# 设备端网页升级要把整个包解到 userdata，体积直接关系到装不装得下。
 ( cd "$TMP" && zip -q -r -X -n .gz:.zip:.apk:.png:.webp:.jpg:.jpeg "$OUT_ZIP" "$NEW_TOP" ) \
     || die "打包失败"
 [ -s "$OUT_ZIP" ] || die "打包后输出为空"
