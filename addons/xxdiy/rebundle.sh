@@ -101,8 +101,10 @@ log "files/openwrt.ext4.gz：$(stat -c %s "$TOPDIR/files/openwrt.ext4.gz") 字�
 printf '%s' "$VER" > "$TOPDIR/files/VERSION"
 log "files/VERSION：$VER"
 
-# 顶层目录名照上游习惯来：Openwrt_E5_Flasher_<去掉 e5-linux 前缀的版本>
-short=$(printf '%s' "$VER" | sed -E 's/^[0-9.]+-[0-9a-f]+[+]//; s/[^A-Za-z0-9._-]+/_/g')
+# 顶层目录名照上游习惯来：Openwrt_E5_Flasher_<去掉版本前缀的版本>
+# 基座版本可能是 `25.12.5-5ac9d504+e5-sleep14` 或 `5ac9d504+e5-sleep14`
+# （sleep14 实际是后者），两种前缀都剥掉。
+short=$(printf '%s' "$VER" | sed -E 's/^([0-9.]+-)?[0-9a-f]{7,40}[+]//; s/[^A-Za-z0-9._-]+/_/g')
 [ -n "$short" ] || short=$VER
 NEW_TOP=${XXDIY_TOPNAME:-Openwrt_E5_Flasher_$short}
 if [ "$NEW_TOP" != "$OLD_TOP" ]; then

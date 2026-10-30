@@ -79,13 +79,18 @@ if ! apk --root /r add dnsmasq-full; then
     exit 1
 fi
 restore
-echo "--- dnsmasq --version ---"
-chroot /r /usr/sbin/dnsmasq --version 2>&1 | head -3
-case "$(chroot /r /usr/sbin/dnsmasq --version 2>&1)" in
-    *no-nftset*) echo "!! 装的还是基础版（no-nftset），不行"; exit 1 ;;
-    *nftset*)    echo "OK：nftset 可用" ;;
-    *)           echo "!! 看不出 nftset 支持情况，不敢继续"; exit 1 ;;
-esac
+# 不能在 chroot 里跑 `dnsmasq --version`：它启动时要读 /dev/urandom 来播种随机数，
+# 而镜像里的 /dev 是空的（开机才由内核挂 devtmpfs），于是只会得到
+# "failed to seed the random number generator"，什么版本信息都没有。
+# 改成直接 grep 二进制里的编译选项字符串：dnsmasq 的 version 输出就是这些常量，
+# 有 nftset 编进去时字面量是 "nftset "，没有时是 "no-nftset "。
+B=/r/usr/sbin/dnsmasq
+[ -x "$B" ] || { echo "!! 没有 /usr/sbin/dnsmasq"; exit 1; }
+if grep -aq 'no-nftset' "$B"; then
+    echo "!! 二进制里是 no-nftset，装的还是基础版"; exit 1
+fi
+grep -aq 'nftset' "$B" || { echo "!! 二进制里找不到 nftset 字样"; exit 1; }
+echo "OK：dnsmasq 二进制带 nftset"
 ' -e "XXDIY_WRT_MIRROR=${XXDIY_WRT_MIRROR:-}"
 fi
 
@@ -120,9 +125,22 @@ if ! apk --root /r add --allow-untrusted /cache/passwall2/*.apk luci-lua-runtime
     exit 1
 fi
 restore
-echo "--- 顺带装进来的 kmod-*（内核不匹配的会被忽略，见下面的 /lib/modules） ---"
+echo "--- 顺带装进来的 kmod-*（内核不匹配的会被清掉，见下面的 /lib/modules） ---"
 apk --root /r info 2>/dev/null | grep -E "^kmod-" | sort | sed "s/^/  /" || echo "  （没有）"
 echo "--- /lib/modules ---"
+ls -1 /r/lib/modules | sed "s/^/  /"
+# 装 kmod-* 会把给 6.12.94 编的 .ko 落到 /lib/modules/6.12.94/ 里（这次是
+# kmod-nf-conntrack-netlink，dnsmasq-full 的 conntrack 功能要它）。E5 跑的是
+# 6.18.54-e5-*，那个目录永远加载不到；而真正需要的 CONFIG_NF_CT_NETLINK
+# 在内核里本来就是 =y。留着只会让 ls /lib/modules 出现两个版本，删掉。
+for d in /r/lib/modules/*; do
+    [ -d "$d" ] || continue
+    case "$(basename "$d")" in
+        *-e5-*) : ;;
+        *) echo "  删掉不匹配的模块目录：$(basename "$d")"; rm -rf "$d" ;;
+    esac
+done
+echo "--- 清理后的 /lib/modules ---"
 ls -1 /r/lib/modules | sed "s/^/  /"
 '
 fi

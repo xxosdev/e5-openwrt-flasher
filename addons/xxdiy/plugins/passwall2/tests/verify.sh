@@ -44,13 +44,13 @@ echo "$(apk --root /r info 2>/dev/null | wc -l) 个包"
 '
 
 check "dnsmasq 带 nftset（不是基础版）" '
-out=$(chroot /r /usr/sbin/dnsmasq --version 2>&1)
-echo "$out" | head -3
-case "$out" in
-    *no-nftset*) echo "还是基础版：no-nftset"; exit 1 ;;
-    *nftset*)    exit 0 ;;
-    *)           echo "看不出 nftset 支持情况"; exit 1 ;;
-esac
+# 不能在 chroot 里跑 dnsmasq --version：它要读 /dev/urandom，而镜像里的 /dev 是空的。
+# 直接 grep 二进制里的编译选项字面量："nftset " / "no-nftset "。
+B=/r/usr/sbin/dnsmasq
+[ -x "$B" ] || { echo "没有 /usr/sbin/dnsmasq"; exit 1; }
+if grep -aq "no-nftset" "$B"; then echo "还是基础版：二进制里是 no-nftset"; exit 1; fi
+grep -aq "nftset" "$B" || { echo "二进制里找不到 nftset 字样"; exit 1; }
+echo "二进制带 nftset"
 '
 
 check "/etc/apk/world 是 dnsmasq-full，没有 dnsmasq" '
@@ -112,8 +112,10 @@ echo "$v"
 case "$v" in *-xxdiy.*) exit 0 ;; *) echo "没有 -xxdiy. 后缀"; exit 1 ;; esac
 '
 
-check "内核模块目录是 E5 自己的那套" '
+check "内核模块目录只剩 E5 自己的那套" '
+n=$(ls -1 /r/lib/modules | wc -l)
 ls -1 /r/lib/modules
+[ "$n" = 1 ] || { echo "/lib/modules 下有 $n 个目录，应该只有 1 个"; exit 1; }
 ls -1 /r/lib/modules | grep -q -- "-e5-" || { echo "没看到 -e5- 的内核目录"; exit 1; }
 '
 
