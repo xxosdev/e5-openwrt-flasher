@@ -125,8 +125,6 @@ if ! apk --root /r add --allow-untrusted /cache/passwall2/*.apk luci-lua-runtime
     exit 1
 fi
 restore
-echo "--- 顺带装进来的 kmod-*（内核不匹配的会被清掉，见下面的 /lib/modules） ---"
-apk --root /r info 2>/dev/null | grep -E "^kmod-" | sort | sed "s/^/  /" || echo "  （没有）"
 echo "--- /lib/modules ---"
 ls -1 /r/lib/modules | sed "s/^/  /"
 # 装 kmod-* 会把给 6.12.94 编的 .ko 落到 /lib/modules/6.12.94/ 里（这次是

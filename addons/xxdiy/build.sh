@@ -137,6 +137,14 @@ NEW_VER=$(printf '%s' "$BASE_VER" | sed -E 's/-xxdiy\.[0-9]{8}(-[0-9]+)?$//')"-$
 log "基座版本：$BASE_VER"
 log "新版本号：$NEW_VER"
 
+# 版本号在跑插件之前就写好：插件的自检会读 /etc/e5/image-version 确认自己确实
+# 被打进了这个版本（verify.sh 会查 -xxdiy. 后缀）。插件不改变版本号本身。
+mkdir -p "$MNT/etc/e5"
+printf '%s\n' "$NEW_VER" > "$MNT/etc/e5/image-version"
+chown 0:0 "$MNT/etc/e5/image-version"
+chmod 644 "$MNT/etc/e5/image-version"
+log "image-version 已写入：$NEW_VER"
+
 ensure_base_image
 
 # ---- 4. 跑插件 -----------------------------------------------------------
@@ -169,14 +177,12 @@ for p in "${plugins[@]}"; do
 done
 [ -n "$ran" ] || die "一个插件都没跑（检查 XXDIY_ONLY / XXDIY_SKIP）"
 
-# ---- 5. 写版本标记 -------------------------------------------------------
-step "5/8 写版本标记"
-mkdir -p "$MNT/etc/e5"
-printf '%s\n' "$NEW_VER" > "$MNT/etc/e5/image-version"
+# ---- 5. 写构建记录 -------------------------------------------------------
+step "5/8 写构建记录"
 printf '%s\n' "$XXDIY_TAG $(date -u +%FT%TZ): $NEW_VER <- $BASE_VER; 插件$ran" \
     > "$MNT/etc/e5/e5-xxdiy.release"
-chown 0:0 "$MNT/etc/e5/image-version" "$MNT/etc/e5/e5-xxdiy.release"
-chmod 644 "$MNT/etc/e5/image-version" "$MNT/etc/e5/e5-xxdiy.release"
+chown 0:0 "$MNT/etc/e5/e5-xxdiy.release"
+chmod 644 "$MNT/etc/e5/e5-xxdiy.release"
 log "image-version: $(tr -d '\n' < "$MNT/etc/e5/image-version")"
 log "e5-xxdiy.release: $(tr -d '\n' < "$MNT/etc/e5/e5-xxdiy.release")"
 
