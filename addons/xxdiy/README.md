@@ -28,7 +28,10 @@ addons/xxdiy/
 │   ├── common.sh            # 公共函数（日志、docker、挂载、fsck）
 │   └── sums.py              # 重算 SHA256SUMS（设备端 e5-upgrade 会校验）
 ├── plugins/
-│   └── passwall2/           # 第一个插件：passwall2 + xray
+│   ├── filemanager/         # LuCI 文件管理器（官方源里有，apk add 即可）
+│   │   ├── install.sh
+│   │   └── tests/verify.sh
+│   └── passwall2/           # passwall2 + xray
 │       ├── install.sh       # 插件入口（契约见下）
 │       ├── fetch.sh         # 下载并校验 apk
 │       ├── apks.txt         # apk 清单（文件名 字节数 sha256）
@@ -179,6 +182,34 @@ if _xxdiy_builtin or (mods:find(...) ...) then
 - **不装 passwall 的 apk 源**。装了的话 `apk upgrade luci-app-passwall2` 会把 Lua 补丁冲掉。
   代价是 geoip/geosite 不自动更新，跟刷机包走。
 
+## filemanager 插件做了什么
+
+`luci-app-filemanager` 是 **openwrt/luci 官方仓库里的应用**
+（`applications/luci-app-filemanager`），25.12.5 的 `aarch64_generic` 源里就有现成的 apk。
+所以这个插件只有一步：`apk add`。不用下载、不用校验 sha256、不用打补丁、不用改 uci。
+
+| 包 | 装完大小 | 依赖 |
+|---|---|---|
+| `luci-app-filemanager` | 88 KiB | `libc`、`luci-base`（镜像里都有） |
+| `luci-i18n-filemanager-zh-cn` | 几 KB | — |
+
+它是**纯 JS** 的 LuCI 应用：`htdocs/` 里的 JS + `menu.d` 的菜单 + `acl.d` 的权限，
+没有 Lua、没有自己的后端。文件操作全部走 ubus 的 `file` 对象
+（`rpcd-mod-file` 提供的 `/usr/lib/rpcd/file.so`），镜像里本来就装了，
+所以不需要任何额外依赖。
+
+装完菜单出现在 **系统 → 文件管理器**（`admin/system/filemanager`）。
+
+> ⚠ **版本钉在 `26.303.28702~0229375`**。25.12.5 的 feed 是冻结的，一般不会变；
+> 万一 OpenWrt 重建了源，构建会明确报错而不是悄悄装成别的版本。
+> 换版本：`XXDIY_FILEMANAGER_VER=<新版本> bash addons/xxdiy/build.sh ...`
+
+> 顺带一句：`CONFIG_PACKAGE_luci-app-filemanager=y` 是 **buildroot 编译期**的写法。
+> 我们不编译，所以等价操作就是 `apk add luci-app-filemanager`，装出来的东西一样。
+
+> 🔒 **安全提醒**：这是个 **root 权限**的文件管理器，能看到、改到整个文件系统。
+> LuCI 的登录口令就是它的唯一门槛，别用弱口令，也别把 LuCI 暴露到公网。
+
 ## 已知限制
 
 - **不能加内核模块**。OpenWrt 官方的 `kmods` feed 是给内核 **6.12.94** 编的，
@@ -198,3 +229,4 @@ if _xxdiy_builtin or (mods:find(...) ...) then
 | 透明代理选项灰着 / 没有 TCP Proxy Way | 哨兵文件在不在，Lua 补丁打没打 |
 | 网页升级报「校验失败：刷机包已损坏」 | `rebundle.sh` 有没有重算 `SHA256SUMS` |
 | 刷完 ping 域名 bad address、ping IP 正常 | dnsmasq 又变回基础版了，看 `/etc/e5/apk-removed.list` |
+| 文件管理器能打开、点文件就报错 | `rpcd-mod-file` 在不在（`/usr/lib/rpcd/file.so`） |
