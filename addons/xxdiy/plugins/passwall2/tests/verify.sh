@@ -89,6 +89,23 @@ grep -qF "_xxdiy_builtin or mods:find" "$O" || { echo "other.lua 的 IPv6 TProxy
 echo "global.lua 1 处 + other.lua 2 处，共 3 处"
 '
 
+check "DNS 查询策略默认都是 UseIP" '
+D=/r/usr/share/passwall2/0_default_config
+A=/r/usr/share/passwall2/app_acl.lua
+G=/r/usr/lib/lua/luci/model/cbi/passwall2/client/global.lua
+grep -qE "option remote_dns_query_strategy .UseIP.$" "$D" \
+    || { echo "0_default_config 里 remote 策略不是 UseIP"; grep remote_dns_query_strategy "$D"; exit 1; }
+! grep -qE "option remote_dns_query_strategy .UseIPv4" "$D" \
+    || { echo "0_default_config 里还是 UseIPv4"; exit 1; }
+grep -qE "option direct_dns_query_strategy .UseIP.$" "$D" \
+    || { echo "direct 策略居然不是 UseIP"; grep direct_dns_query_strategy "$D"; exit 1; }
+grep "remote_dns_query_strategy" "$A" | grep -qE "or .UseIP.,$" \
+    || { echo "app_acl.lua 的兜底不是 UseIP"; grep remote_dns_query_strategy "$A"; exit 1; }
+! grep -qF "o.default = \"UseIPv4\"" "$G" \
+    || { echo "global.lua 里还留着 o.default = UseIPv4"; exit 1; }
+echo "direct + remote 都是 UseIP"
+'
+
 check "哨兵文件在" '
 [ -s /r/etc/e5/xxdiy/nft-tproxy-builtin ] || { echo "缺 /etc/e5/xxdiy/nft-tproxy-builtin"; exit 1; }
 '

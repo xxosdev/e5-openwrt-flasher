@@ -25,6 +25,9 @@
 #   4. 升级保留：device-install-image.sh 的 carry_packages() 会把旧系统里有、
 #      新系统里没有的包搬回来。基础版 dnsmasq 会被搬回来顶掉 dnsmasq-full
 #      -> 往 /etc/e5/apk-removed.list 里加 dnsmasq。
+#
+#   5. 远程 DNS 查询策略默认是 UseIPv4（只问 A 记录），双栈站点解析不到 IPv6。
+#      -> patch/dns-query-strategy.py 把三处默认值都改成 UseIP。
 set -euo pipefail
 
 MNT=${1:?用法: install.sh <镜像挂载点>}
@@ -205,6 +208,10 @@ log "uci-defaults：$MNT/etc/uci-defaults/zz-xxdiy"
 # ---- 7. Lua 补丁 ---------------------------------------------------------
 step "打 Lua 补丁（tproxy 误判）"
 python3 "$PLUGIN_DIR/patch/tproxy-detect.py" "$MNT"
+
+# ---- 7b. DNS 查询策略默认值 ----------------------------------------------
+step "改 DNS 查询策略默认值（UseIPv4 -> UseIP）"
+python3 "$PLUGIN_DIR/patch/dns-query-strategy.py" "$MNT"
 
 # ---- 8. 自检 -------------------------------------------------------------
 step "自检"
