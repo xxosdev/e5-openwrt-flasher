@@ -1,0 +1,33 @@
+#!/bin/sh
+# 让「信息屏 → 设置 → 网络 → 禁用 IPv6」的默认值是**关**（也就是 IPv6 保持启用）。
+#
+# 为什么要这么做：
+#   信息屏前端 /usr/share/e5-infoscreen/settings.uc 里是
+#       let on = (k) => (c.get('e5-plugin-noipv6','settings',k) ?? '1') != '0';
+#   后端 /usr/libexec/e5-ipv6 里是
+#       setting() { [ "$(uci -q get $CFG.settings.$1 || echo 1)" != 0 ] && echo 1 || echo 0; }
+#   两边都把「配置项不存在」当成 1，也就是「开」= 禁用 IPv6。
+#   全新镜像里 /etc/config/e5-plugin-noipv6 根本不存在，于是首次开机
+#   /etc/init.d/e5-ipv6 会把 IPv6 关掉，界面上那个开关也显示「开」。
+#
+# 这里在首次开机时把 enabled 显式写成 0。两个刻意的限制：
+#   * 只在「还没设过」时写 —— 用户自己拨过开关、或者上游哪天把默认值改成关，
+#     都不会被我们覆盖。
+#   * 只写 enabled，不动 wan_ipv4 / filter_aaaa —— 那两个是「禁用时怎么禁」的
+#     细分开关，用户手动打开禁用时仍然应该按默认（1）生效。
+#
+# uci-defaults 里的脚本跑成功会被自动删掉，所以只会执行一次。
+# 前缀 90- 是为了排在 e5-infoscreen 的 80-/81- 之后（它要先把自己的配置建好）。
+
+CFG=e5-plugin-noipv6
+
+[ -f "/etc/config/$CFG" ] || touch "/etc/config/$CFG"
+uci -q get "$CFG.settings" >/dev/null 2>&1 || uci set "$CFG.settings=settings"
+
+if [ -z "$(uci -q get "$CFG.settings.enabled")" ]; then
+    uci set "$CFG.settings.enabled=0"
+    uci commit "$CFG"
+    echo "xxdiy: 禁用 IPv6 的默认值设为关（IPv6 保持启用）"
+fi
+
+exit 0

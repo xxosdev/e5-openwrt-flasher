@@ -31,6 +31,10 @@ addons/xxdiy/
 │   ├── filemanager/         # LuCI 文件管理器（官方源里有，apk add 即可）
 │   │   ├── install.sh
 │   │   └── tests/verify.sh
+│   ├── ipv6-default/        # 让「禁用 IPv6」默认是关
+│   │   ├── install.sh
+│   │   ├── overlay/etc/uci-defaults/90-xxdiy-ipv6
+│   │   └── tests/verify.sh
 │   └── passwall2/           # passwall2 + xray
 │       ├── install.sh       # 插件入口（契约见下）
 │       ├── fetch.sh         # 下载并校验 apk
@@ -176,6 +180,19 @@ if _xxdiy_builtin or (mods:find(...) ...) then
 那是 apk v2 的产物，OpenWrt 25.12 用 apk v3，根本不生成。
 处理：造三个占位文件（它只检查非空）。
 
+### 5. 远程 DNS 查询策略默认是 `UseIPv4`
+
+`0_default_config` 里 `remote_dns_query_strategy` 默认 `UseIPv4` —— 只向远程 DNS 要 A 记录，
+双栈站点就解析不到 IPv6 地址。`direct_dns_query_strategy` 本来就是 `UseIP`，只有 remote 这一项不对。
+
+处理：`patch/dns-query-strategy.py` 把三处都改成 `UseIP`：
+
+| 文件 | 作用 |
+|---|---|
+| `usr/share/passwall2/0_default_config` | uci 第一次建配置时照它写，**真正生效**的那个 |
+| `.../client/global.lua` | 界面上的默认值（uci 里没有这一项时才用得上） |
+| `usr/share/passwall2/app_acl.lua` | ACL 读不到配置时的兜底 |
+
 ### 另外两点
 
 - **`luci-lua-runtime` 显式装上**。passwall2 的界面是 Lua CBI，缺了它页面白屏。
@@ -210,6 +227,35 @@ if _xxdiy_builtin or (mods:find(...) ...) then
 > 🔒 **安全提醒**：这是个 **root 权限**的文件管理器，能看到、改到整个文件系统。
 > LuCI 的登录口令就是它的唯一门槛，别用弱口令，也别把 LuCI 暴露到公网。
 
+## ipv6-default 插件做了什么
+
+只放一个 uci-defaults：`/etc/uci-defaults/90-xxdiy-ipv6`，首次开机把
+`e5-plugin-noipv6.settings.enabled` 写成 `0`，让信息屏「设置 → 网络 → 禁用 IPv6」
+默认是**关**（也就是 IPv6 开箱可用）。
+
+为什么要这么绕：这个默认值在信息屏里是写死的「缺省 = 1」——
+
+~~~js
+// /usr/share/e5-infoscreen/settings.uc
+let on = (k) => (c.get('e5-plugin-noipv6','settings',k) ?? '1') != '0';
+~~~
+
+~~~sh
+# /usr/libexec/e5-ipv6
+setting() { [ "$(uci -q get $CFG.settings.$1 || echo 1)" != 0 ] && echo 1 || echo 0; }
+~~~
+
+全新镜像里 `/etc/config/e5-plugin-noipv6` 不存在，于是开机时 `e5-ipv6 sync`
+会把 IPv6 关掉，开关也显示「开」。
+
+**不改上游那两个文件**，只在首次开机时把值显式写出来。两个刻意的限制：
+
+- 只在「还没设过」时写 —— 用户自己拨过开关、或者上游哪天把默认改掉，都不覆盖
+- 只写 `enabled`，不动 `wan_ipv4` / `filter_aaaa`（那两个是「禁用时怎么禁」的细分开关，
+  用户手动打开禁用时仍按默认 1 生效）
+
+想恢复成「默认禁用 IPv6」：把 `plugins/ipv6-default/` 删掉重新构建即可。
+
 ## 已知限制
 
 - **不能加内核模块**。OpenWrt 官方的 `kmods` feed 是给内核 **6.12.94** 编的，
@@ -230,3 +276,5 @@ if _xxdiy_builtin or (mods:find(...) ...) then
 | 网页升级报「校验失败：刷机包已损坏」 | `rebundle.sh` 有没有重算 `SHA256SUMS` |
 | 刷完 ping 域名 bad address、ping IP 正常 | dnsmasq 又变回基础版了，看 `/etc/e5/apk-removed.list` |
 | 文件管理器能打开、点文件就报错 | `rpcd-mod-file` 在不在（`/usr/lib/rpcd/file.so`） |
+| 信息屏「禁用 IPv6」默认还是开 | `ipv6-default` 插件没跑，或 `/etc/config/e5-plugin-noipv6` 里 `enabled=1` |
+| 双栈站点只有 IPv4 能通、IPv6 解析不到 | `uci get passwall2.@global[0].remote_dns_query_strategy` 应为 `UseIP` |
