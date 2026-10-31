@@ -182,16 +182,23 @@ if _xxdiy_builtin or (mods:find(...) ...) then
 
 ### 5. 远程 DNS 查询策略默认是 `UseIPv4`
 
-`0_default_config` 里 `remote_dns_query_strategy` 默认 `UseIPv4` —— 只向远程 DNS 要 A 记录，
+`remote_dns_query_strategy` 默认 `UseIPv4` —— 只向远程 DNS 要 A 记录，
 双栈站点就解析不到 IPv6 地址。`direct_dns_query_strategy` 本来就是 `UseIP`，只有 remote 这一项不对。
 
-处理：`patch/dns-query-strategy.py` 把三处都改成 `UseIP`：
+处理：`patch/dns-query-strategy.py` 把四处都改成 `UseIP`：
 
 | 文件 | 作用 |
 |---|---|
-| `usr/share/passwall2/0_default_config` | uci 第一次建配置时照它写，**真正生效**的那个 |
+| `etc/config/passwall2` | 包**直接发下来的配置文件**，开机就生效 —— 真机上栽的就是这里 |
+| `usr/share/passwall2/0_default_config` | 配置被删/重置时用它重建 |
 | `.../client/global.lua` | 界面上的默认值（uci 里没有这一项时才用得上） |
 | `usr/share/passwall2/app_acl.lua` | ACL 读不到配置时的兜底 |
+
+> ⚠ **踩过的坑**：一开始只改了后三个，`0_default_config` 明明是 `UseIP`，
+> `uci get` 出来却是 `UseIPv4`。原因是这个 apk 把 `/etc/config/passwall2`
+> 直接打包发下来了（6352 字节，和补丁前的 `0_default_config` 一字不差），
+> 开机就有、**不会**从模板生成。自检也犯了同样的错：只查模板不查实际配置，
+> 于是 CI 全绿、真机是错的。现在两边都查 `etc/config/passwall2`。
 
 ### 另外两点
 

@@ -1,19 +1,24 @@
 #!/usr/bin/env python3
 """把 passwall2 的「远程 DNS 查询策略」默认值从 UseIPv4 改成 UseIP。
 
-passwall2 里这个默认值写在三个地方，direct_dns_query_strategy 本来就都是 UseIP，
-不用动：
+direct_dns_query_strategy 本来就都是 UseIP，不用动。remote 这个值写在四处：
 
-  1. usr/share/passwall2/0_default_config
+  1. etc/config/passwall2
          option remote_dns_query_strategy 'UseIPv4'
-     uci-defaults 第一次建配置时照它写 —— 这是**真正生效**的那个。
+     **这是真正生效的那个。** 包直接把配置文件发下来了，开机就有，不会从
+     0_default_config 生成 —— 只改 0_default_config 是改不到的，真机上就是
+     栽在这里（镜像里 0_default_config 已经是 UseIP，uci 里还是 UseIPv4）。
 
-  2. usr/lib/lua/luci/model/cbi/passwall2/client/global.lua
+  2. usr/share/passwall2/0_default_config
+         option remote_dns_query_strategy 'UseIPv4'
+     配置文件被删掉/重置时用它重建，也得改。
+
+  3. usr/lib/lua/luci/model/cbi/passwall2/client/global.lua
          o = s:taboption("DNS", ListValue, "remote_dns_query_strategy", ...)
          o.default = "UseIPv4"
      界面上的默认值，uci 里没有这一项时才用得上。
 
-  3. usr/share/passwall2/app_acl.lua
+  4. usr/share/passwall2/app_acl.lua
          remote_dns_query_strategy = uci_get("@global[0]", "remote_dns_query_strategy") or "UseIPv4",
      ACL 读不到配置时的兜底。
 
@@ -57,6 +62,9 @@ NEW_DEF = "option remote_dns_query_strategy 'UseIP'"
 
 # rel -> [(原文, 替换成, 补丁后特征, 人话标签), ...]
 PATCHES: dict[str, list[tuple[str, str, str, str]]] = {
+    "etc/config/passwall2": [
+        (OLD_DEF, NEW_DEF, NEW_DEF, "实际配置"),
+    ],
     "usr/share/passwall2/0_default_config": [
         (OLD_DEF, NEW_DEF, NEW_DEF, "uci 默认值"),
     ],
@@ -67,6 +75,10 @@ PATCHES: dict[str, list[tuple[str, str, str, str]]] = {
         (OLD_ACL, NEW_ACL, NEW_ACL, "ACL 兜底"),
     ],
 }
+
+# 这几版是随包发的配置文件，不是每个版本都有。没有就跳过，不要因此让整个构建失败
+# （缺了它顶多是首次开机从 0_default_config 生成，那条路我们也改了）。
+OPTIONAL = {"etc/config/passwall2"}
 
 
 def main(argv: list[str]) -> int:
@@ -91,6 +103,9 @@ def main(argv: list[str]) -> int:
     for rel, patches in PATCHES.items():
         path = root / rel
         if not path.is_file():
+            if rel in OPTIONAL:
+                print(f"  [跳过] 没有 {rel}（这一版不随包发，首次开会从默认配置生成）")
+                continue
             print(f"  [失败] 找不到 {rel}", file=sys.stderr)
             rc = 1
             continue

@@ -93,6 +93,15 @@ check "DNS 查询策略默认都是 UseIP" '
 D=/r/usr/share/passwall2/0_default_config
 A=/r/usr/share/passwall2/app_acl.lua
 G=/r/usr/lib/lua/luci/model/cbi/passwall2/client/global.lua
+C=/r/etc/config/passwall2
+# 这个才是开机就生效的那个：包直接发配置文件，不从 0_default_config 生成。
+# 以前只查了下面几个模板，CI 绿着、真机上却还是 UseIPv4，就是漏了它。
+if [ -f "$C" ]; then
+    grep -qE "option remote_dns_query_strategy .UseIP.$" "$C" \
+        || { echo "/etc/config/passwall2 里 remote 策略不是 UseIP（这个是实际生效的）"; grep remote_dns_query_strategy "$C"; exit 1; }
+    grep -qE "option direct_dns_query_strategy .UseIP.$" "$C" \
+        || { echo "/etc/config/passwall2 里 direct 策略不是 UseIP"; grep direct_dns_query_strategy "$C"; exit 1; }
+fi
 grep -qE "option remote_dns_query_strategy .UseIP.$" "$D" \
     || { echo "0_default_config 里 remote 策略不是 UseIP"; grep remote_dns_query_strategy "$D"; exit 1; }
 ! grep -qE "option remote_dns_query_strategy .UseIPv4" "$D" \
