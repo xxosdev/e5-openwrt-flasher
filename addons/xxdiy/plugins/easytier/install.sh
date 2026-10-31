@@ -10,10 +10,18 @@
 #   /dev/net/tun 在，实测 ip tuntap add 能建），所以官方源里根本没有 kmod-tun
 #   这个包 —— apk add 一定报依赖不可满足。解包铺文件绕开依赖解析，功能一点不缺。
 #
-# 铺完之后**默认不开机自启**（用户要求）。这里比 ddns-go 多一道必要动作：
-#   上游的 /etc/uci-defaults/luci-easytier 里有 `/etc/init.d/easytier enable`，
-#   首次开机它会把服务设成自启。所以除了构建时删 rc.d 链接，还要一个排在它
-#   后面的 uci-defaults（zz-，'z' > 'l'）再关一次。
+# 默认不会跑核心 —— 但**不是靠关自启做到的**，靠的是上游配置本身：
+#   /etc/config/easytier 出厂就是 enabled='0' / web_enabled='0'，
+#   init 脚本 start_service() 里是
+#       [ "$(uci -q get easytier.@easytier[0].enabled)" = "1" ] && start_et easytier
+#   两个都是 0，所以就算 rc.d 里有 S99easytier，开机也只是空跑一遍就返回。
+#
+# 所以这里**故意不 disable**：
+#   上游 /etc/uci-defaults/luci-easytier 会在首次开机 `/etc/init.d/easytier enable`
+#   建出 S99easytier。而 LuCI 那边（controller 的 toggleCore / restart_service）
+#   只会调 start / restart，**从不调 enable**。要是我们把 enable 关掉，
+#   用户以后在页面里勾了「启用」→ 当下能跑，一重启又没了，得手动去
+#   「系统→启动项」里再打开一次。留着上游的 enable 才是对的。
 set -euo pipefail
 
 MNT=${1:?用法: install.sh <镜像挂载点>}
@@ -43,12 +51,6 @@ for t in "${pkgs[@]}"; do
     log "铺了 $(basename "$t")"
 done
 
-cp -a "$PLUGIN_DIR/overlay/." "$MNT/"
-F=$MNT/etc/uci-defaults/zz-xxdiy-easytier-off
-chown 0:0 "$F"
-chmod 755 "$F"
-log "uci-defaults：$F"
-
 # init 脚本要有可执行位（上游的 postinst 也会 chmod，我们不跑 postinst）
 chmod 755 "$MNT/etc/init.d/$SVC" 2>/dev/null || warn "没找到 /etc/init.d/$SVC"
 
@@ -61,8 +63,8 @@ step "3/5 补依赖"
 run_in_root 'apk --root /r add luci-compat luci-lua-runtime' \
     || die "装 luci-compat / luci-lua-runtime 失败"
 
-# ---- 4. 关掉开机自启 -----------------------------------------------------
-step "4/5 关掉开机自启"
+# ---- 4. 清掉构建时可能残留的自启链接 -------------------------------------
+step "4/5 清掉构建时可能残留的自启链接"
 n=0
 for f in "$MNT"/etc/rc.d/S*"$SVC" "$MNT"/etc/rc.d/K*"$SVC"; do
     [ -e "$f" ] || continue
@@ -70,11 +72,12 @@ for f in "$MNT"/etc/rc.d/S*"$SVC" "$MNT"/etc/rc.d/K*"$SVC"; do
     log "删掉自启链接：$(basename "$f")"
     n=$((n + 1))
 done
-[ "$n" = 0 ] && log "本来就没有自启链接（我们没跑 postinst，正常）"
-log "注意：上游 luci-easytier 那个 uci-defaults 会在首次开机 enable，由 zz-xxdiy-easytier-off 兜住"
+[ "$n" = 0 ] && log "本来就没有（我们没跑 postinst，正常）"
+log "首次开机上游 luci-easytier 会 enable 建出 S99，这是上游设计，不用管："
+log "  enabled='0' 时 start_service() 直接返回，核心不会起来"
 
 # ---- 5. 自检 -------------------------------------------------------------
 step "5/5 自检"
 bash "$PLUGIN_DIR/tests/verify.sh" "$MNT"
 
-log "easytier 插件完成（默认不开机自启）"
+log "easytier 插件完成（默认不启动：配置里 enabled='0'）"

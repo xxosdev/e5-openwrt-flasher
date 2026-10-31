@@ -71,19 +71,29 @@ check "TUN 能力在（内核内建，不需要 kmod-tun 包）" '
 ls -l /r/dev/net/tun
 '
 
-check "默认不开机自启（/etc/rc.d 里没有 easytier）" '
-n=$(ls /r/etc/rc.d/ 2>/dev/null | grep -c "easytier" || true)
-[ "${n:-0}" = 0 ] || { echo "/etc/rc.d 里还有 $n 个 easytier 链接："; ls /r/etc/rc.d/ | grep easytier; exit 1; }
-echo "干净"
+check "默认不启动：配置里 enabled / web_enabled 都是 0" '
+# 这才是「装了不跑核心」的真正保证。init 脚本 start_service() 里是
+#   [ "$(uci -q get easytier.@easytier[0].enabled)" = "1" ] && start_et easytier
+# 两个值都是 0 时它空跑一遍就返回。
+# 注意：首次开机上游 uci-defaults 会 /etc/init.d/easytier enable 建出
+# /etc/rc.d/S99easytier，那是上游设计，不用去删 —— 核心照样不会起来。
+C=/r/etc/config/easytier
+[ -s "$C" ] || { echo "缺 $C"; exit 1; }
+e=$(awk "/^[[:space:]]*config[[:space:]]+easytier/ {f=1; next} f && /^[[:space:]]*config/ {f=0} f && /enabled/ {print}" "$C")
+echo "$e"
+# 值写成 '0' 还是 0 都接受：用 [^0-9]* 吞掉引号，别在单引号串里塞单引号
+echo "$e" | grep -qE "^[[:space:]]*option[[:space:]]+enabled[[:space:]]+[^0-9]*0[^0-9]*$" \
+    || { echo "enabled 默认不是 0，开机会拉起核心"; exit 1; }
+echo "$e" | grep -qE "^[[:space:]]*option[[:space:]]+web_enabled[[:space:]]+[^0-9]*0[^0-9]*$" \
+    || { echo "web_enabled 默认不是 0，开机会拉起 easytier-web"; exit 1; }
+echo "两个都是 0"
 '
 
-check "关自启的 uci-defaults 排在 luci-easytier 之后" '
-F=/r/etc/uci-defaults/zz-xxdiy-easytier-off
-[ -x "$F" ] || { echo "缺 $F"; exit 1; }
-# 字典序：zz- 必须排在 luci-easytier 后面，否则关不掉上游的 enable
-printf "luci-easytier\nzz-xxdiy-easytier-off\n" | sort -c 2>/dev/null \
-    || { echo "排序不对：zz- 没排在 luci-easytier 之后"; exit 1; }
-echo "顺序正确"
+check "init 脚本里确实按 enabled 判断才启动" '
+# 防止上游哪天改了判断逻辑，导致上面的默认值不再起作用
+grep -q "easytier\[0\]\.enabled" /r/etc/init.d/easytier \
+    || { echo "init 脚本里找不到 enabled 判断，行为可能变了"; exit 1; }
+grep -n "start_et" /r/etc/init.d/easytier | head -3
 '
 
 printf '\n'
