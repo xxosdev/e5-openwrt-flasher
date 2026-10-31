@@ -9,7 +9,7 @@ boot.img 都是他调好的。**这里不重编任何东西**，只做一件事�
 上游刷机包  ->  取出里面的 files/openwrt.ext4.gz
             ->  挂载 ext4，往里装插件（apk / overlay / 补丁）
             ->  重新打包
-            ->  塞回上游刷机包，改 VERSION、重算 SHA256SUMS
+            ->  塞回上游刷机包，在 VERSION 末尾追加一段、重算 SHA256SUMS
 ```
 
 好处是**和上游零冲突**：整个扩展层只新增文件，一个上游文件都不改，
@@ -137,12 +137,17 @@ CONFIG_NFT_TPROXY=y   CONFIG_NFT_SOCKET=y   CONFIG_NFT_REDIR=y
 CONFIG_NF_NAT=y       CONFIG_IP_SET=y       CONFIG_NF_CONNTRACK=y
 ```
 
-passwall2 靠 `lsmod` 判断，于是两处误判（**是同一行代码**）：
+passwall2 靠 `lsmod` 判断，于是三处误判：
 
-| 文件 | 症状 |
-|---|---|
-| `client/global.lua` | Localhost Proxy / Client Proxy 变灰 + 红字「Missing components」 |
-| `client/other.lua` | 整个「TCP Proxy Way」下拉框**消失**，连 REDIRECT/TPROXY 都选不了 |
+| 文件 | 行 | 症状 |
+|---|---|---|
+| `client/global.lua` | 组件总开关 | Localhost Proxy / Client Proxy 变灰 + 红字「Missing components」 |
+| `client/other.lua` | 组件总开关 | 整个「TCP Proxy Way」下拉框**消失**，连 REDIRECT/TPROXY 都选不了 |
+| `client/other.lua` | IPv6 开关 | 「IPv6 TProxy」复选框**根本不出现**（它判断的是 `ip6table_mangle` 或 `nft_tproxy`，两个都不在 `lsmod` 里） |
+
+前两处是**同一行代码**；第三处嵌在它里面，是另一行，得单独补。
+`iptables.sh` 里还有两处同样的 `lsmod | grep`，但只在 iptables 后端生效——
+我们用 nftables（`prefer_nft=1` + `fw4` + `dnsmasq-full` 的 `nftset`），走不到那里。
 
 处理：`patch/tproxy-detect.py` 在判定语句前插一个哨兵文件判断：
 
@@ -152,7 +157,12 @@ if _xxdiy_builtin then _xxdiy_builtin:close() end
 if _xxdiy_builtin or (mods:find(...) ...) then
 ```
 
-- 幂等：已经有 `_xxdiy_builtin` 就跳过
+第三处复用同一个 local（作用域是整个 chunk），写成
+`if _xxdiy_builtin or mods:find("ip6table_mangle") or mods:find("nft_tproxy") then`；
+万一第一处没打上，Lua 读未定义变量得 `nil`，会退回原生判断，不会报错。
+
+- 幂等：**按处**判断（看补丁后的特征片段），不是整份文件跳过——
+  老版本脚本只打过前两处，新脚本会补上第三处
 - 可逆：内核哪天改回 `=m`，删掉哨兵文件就恢复原生判断
 - 不掩盖真问题：哨兵不在、`lsmod` 也没有，照样报缺组件
 - 找不到原文时**硬失败**并把相关的行打出来，不会静默跳过

@@ -78,12 +78,15 @@ done
 echo "两个文件都能编译"
 '
 
-check "tproxy 误判的两处都打了补丁" '
-for f in /usr/lib/lua/luci/model/cbi/passwall2/client/global.lua \
-         /usr/lib/lua/luci/model/cbi/passwall2/client/other.lua; do
-    grep -q "_xxdiy_builtin" "/r$f" || { echo "没打补丁：$f"; exit 1; }
-done
-echo "global.lua 和 other.lua 都有 _xxdiy_builtin"
+check "tproxy 误判的三处都打了补丁" '
+G=/r/usr/lib/lua/luci/model/cbi/passwall2/client/global.lua
+O=/r/usr/lib/lua/luci/model/cbi/passwall2/client/other.lua
+# 组件总开关：两个文件里都有，补丁后形如 "if _xxdiy_builtin or (mods:find(..."
+grep -qF "_xxdiy_builtin or (mods:find" "$G" || { echo "global.lua 的组件总开关没打补丁"; exit 1; }
+grep -qF "_xxdiy_builtin or (mods:find" "$O" || { echo "other.lua 的组件总开关没打补丁"; exit 1; }
+# IPv6 TProxy 开关：只有 other.lua，补丁后形如 "if _xxdiy_builtin or mods:find(..."
+grep -qF "_xxdiy_builtin or mods:find" "$O" || { echo "other.lua 的 IPv6 TProxy 开关没打补丁"; exit 1; }
+echo "global.lua 1 处 + other.lua 2 处，共 3 处"
 '
 
 check "哨兵文件在" '

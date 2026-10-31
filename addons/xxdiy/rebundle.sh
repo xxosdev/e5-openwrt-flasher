@@ -105,9 +105,37 @@ done
 cp -f "$NEW_EXT4_GZ" "$TOPDIR/files/openwrt.ext4.gz"
 log "files/openwrt.ext4.gz：$(stat -c %s "$TOPDIR/files/openwrt.ext4.gz") 字节，sha256 $(sha256sum "$TOPDIR/files/openwrt.ext4.gz" | cut -d' ' -f1)"
 
-# 设备端读它只是显示（tr -d '\n' < files/VERSION），不参与版本比较
-printf '%s' "$VER" > "$TOPDIR/files/VERSION"
-log "files/VERSION：$VER"
+# files/VERSION 有两个身份，都不能丢：
+#   1. flash.py 把它原样打印出来（第 177 行）；
+#   2. 启动器按 " + " 切成两段，前半显示成「内核」，后半显示成「特性」。
+# 上游作者在这里累积写更新日志，每发一版追加一段 "+ e5-sleepN 日期 (说明)"。
+# 所以**不能整条覆盖**：一覆盖，上游的基座信息和历史特性全丢，
+# 启动器上「特性」一栏直接变空，一串版本号全挤在「内核」里。
+# 正确做法：保留原文，只在末尾追加我们这一段。
+ver_file=$TOPDIR/files/VERSION
+orig_ver=$(tr -d '\n' < "$ver_file" 2>/dev/null || true)
+
+# 追加段长这样：xxdiy.20261031 2026-10-31 (说明)，和上游 "e5-sleep14 2026-10-26 (...)" 同款。
+# 说明可以用 XXDIY_VER_NOTE 覆盖；以后加新插件，记得来这行补一句。
+XXDIY_VER_NOTE=${XXDIY_VER_NOTE:-"passwall2 + xray-core; dnsmasq-full; kernel nft tproxy detection fixed"}
+tag=$(printf '%s' "$VER" | sed -n 's/.*\(xxdiy\.[0-9]\{8\}\).*/\1/p')
+[ -n "$tag" ] || tag="xxdiy.$(TZ=Asia/Shanghai date +%Y%m%d)"
+d=${tag#xxdiy.}
+seg="$tag ${d:0:4}-${d:4:2}-${d:6:2}"
+
+case "$orig_ver" in
+    '')       # 上游没写这个文件（正常不会，上面已经 -s 检查过），退回旧行为
+        printf '%s' "$VER" > "$ver_file"
+        log "files/VERSION：$VER（上游没有原文，直接写版本号）"
+        ;;
+    *xxdiy.*) # 拿已经带 xxdiy 的包当底，别叠加第二段
+        log "files/VERSION 里已经有 xxdiy 段，原样保留"
+        ;;
+    *)
+        printf '%s + %s (%s)' "$orig_ver" "$seg" "$XXDIY_VER_NOTE" > "$ver_file"
+        log "files/VERSION 保留上游原文，末尾追加：+ $seg ($XXDIY_VER_NOTE)"
+        ;;
+esac
 
 # 顶层目录名照上游习惯来：Openwrt_E5_Flasher_<去掉版本前缀的版本>
 # 基座版本可能是 `25.12.5-5ac9d504+e5-sleep14` 或 `5ac9d504+e5-sleep14`
