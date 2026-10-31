@@ -26,21 +26,8 @@ addons/xxdiy/
 ├── rebundle.sh              # 新 ext4.gz -> 新的刷机包 zip
 ├── lib/
 │   ├── common.sh            # 公共函数（日志、docker、挂载、fsck）
-│   ├── fetch-ipk.sh         # 下载 GitHub Release 资产、校验、解出 ipk 的 data.tar
-│   ├── ipk.py               # ipk = ar 里套 data.tar.gz，这里只取文件树
 │   └── sums.py              # 重算 SHA256SUMS（设备端 e5-upgrade 会校验）
 ├── plugins/
-│   ├── ddns-go/             # ddns-go + LuCI（第三方，解包铺文件）
-│   │   ├── assets.txt       # release 资产清单（URL 字节数 sha256 ipk 前缀）
-│   │   ├── fetch.sh
-│   │   ├── install.sh
-│   │   ├── overlay/etc/uci-defaults/zz-xxdiy-ddns-go-off
-│   │   └── tests/verify.sh
-│   ├── easytier/            # EasyTier + LuCI（第三方，解包铺文件，同上）
-│   │   ├── assets.txt
-│   │   ├── fetch.sh
-│   │   ├── install.sh
-│   │   └── tests/verify.sh
 │   ├── filemanager/         # LuCI 文件管理器（官方源里有，apk add 即可）
 │   │   ├── install.sh
 │   │   └── tests/verify.sh
@@ -269,84 +256,6 @@ setting() { [ "$(uci -q get $CFG.settings.$1 || echo 1)" != 0 ] && echo 1 || ech
 
 想恢复成「默认禁用 IPv6」：把 `plugins/ipv6-default/` 删掉重新构建即可。
 
-## 第三方插件（ddns-go / easytier）为什么要解包
-
-这两个不在官方 25.12.5 源里，只有 GitHub Release。而且**不能走 `apk add`**：
-
-| 插件 | 情况 |
-|---|---|
-| `ddns-go` | 有 ipk（24.10）也有 apk（SNAPSHOT）两套，其实 apk 也能装 |
-| `easytier` | 包声明 `+kmod-tun`。我们内核 `CONFIG_TUN=y`（编进去了，`/dev/net/tun` 在，实测 `ip tuntap add` 能建），所以官方源里**根本没有 kmod-tun 这个包**，`apk add` 一定报依赖不可满足 |
-
-apk 3 也没有 `--no-depends` 这种忽略依赖的开关（force 系列只有 `--force-broken-world` 之类）。
-所以两个统一走「解包铺文件」：
-
-```
-assets.txt（URL + 字节数 + sha256 + ipk 前缀）
-  -> lib/fetch-ipk.sh  下载、校验、解 zip/tar
-  -> lib/ipk.py        只挑匹配前缀的 ipk，取出 data.tar
-  -> install.sh        用 tar 铺进 ext4
-```
-
-好处：绕开依赖解析、签名、postinst，也不受 24.10 / 22.03 与 25.12 的包格式差异影响。
-代价：**没有 apk 数据库记录**（`apk list` 里看不到它们），依赖要自己保证。
-
-sha256 取自 GitHub API 的 asset `digest` 字段，不是下载后自己算的 —— 所以清单可以先写好再跑。
-
-### 默认不启动
-
-两个插件都要求「装完不要自己跑起来」，但两者达成方式**不一样**，别照抄。
-
-**ddns-go：靠关自启**
-
-1. **构建时**：删掉 `/etc/rc.d/S*ddns-go`、`K*ddns-go`（我们没跑 postinst，本来不会有，删是兜底）。
-2. **开机时**：`zz-xxdiy-ddns-go-off` 这个 uci-defaults 再 `stop` + `disable` 一次。
-
-第 2 层必需，因为 ddns-go 的 init 脚本 `START=99` 且没有「配置为空就不启动」的判断，
-真起来会去连 DDNS 服务商。（它的 `99-luci-ddns-go` 只 chmod + 重启 rpcd，不 enable，
-所以还得我们自己关。）
-
-**easytier：不用关，配置本身就是关的**
-
-`/etc/config/easytier` 出厂就是：
-
-```
-option enabled '0'
-option web_enabled '0'
-```
-
-而 `start_service()` 里是：
-
-```sh
-[ "$(uci -q get easytier.@easytier[0].web_enabled)" = "1" ] && start_web
-[ "$(uci -q get easytier.@easytier[0].enabled)"     = "1" ] && start_et easytier
-```
-
-两个都是 `0`，所以**就算 rc.d 里有 `S99easytier`，开机也只是空跑一遍就返回**，核心不会起来。
-实测这台机器上没配过的 easytier 就是 `ps` 里一个进程都没有。
-
-> **所以这里故意不去 disable。** 早先写过一个 `zz-xxdiy-easytier-off` 去 `stop` + `disable`，
-> 已经删掉了，原因不是「多余」，而是**有害**：
-> 上游 `/etc/uci-defaults/luci-easytier` 首次开机会 `/etc/init.d/easytier enable` 建出
-> `S99easytier`；而 LuCI 那边（controller 的 `toggleCore` / `restart_service`）**只调
-> `start` / `restart`，从来不调 `enable`**。要是我们把它 disable 了，用户以后在页面里
-> 勾了「启用」→ 当下能跑，一重启又没了，还得手动去「系统→启动项」里再打开一次。
-> 留着上游的 `enable`，用户启用一次就永久生效，这才是对的。
-
-自检里对应的断言也跟着换了：不再查 `/etc/rc.d` 有没有链接（那个链接迟早会出现，
-查它没意义），改成查**配置里 `enabled` / `web_enabled` 是不是 0**，外加查 init 脚本
-里那个 `enabled` 判断还在不在 —— 万一上游改了逻辑，这条会红。
-
-### 依赖
-
-| 插件 | 需要 | 镜像里 |
-|---|---|---|
-| `ddns-go` | `ca-bundle`（HTTPS 找 DNS 服务商） | 有，显式再装一次当文档 |
-| `easytier` | `luci-compat` + `luci-lua-runtime`（界面是 Lua CBI） | 有，但**插件顺序在前**，所以自己装 |
-
-> ⚠ 插件按目录名字典序跑：`ddns-go` → `easytier` → `filemanager` → `ipv6-default` → `passwall2`。
-> easytier 排在 passwall2 前面，不能指望 passwall2 顺手把 `luci-compat` 装上。
-
 ## 已知限制
 
 - **不能加内核模块**。OpenWrt 官方的 `kmods` feed 是给内核 **6.12.94** 编的，
@@ -369,7 +278,3 @@ option web_enabled '0'
 | 文件管理器能打开、点文件就报错 | `rpcd-mod-file` 在不在（`/usr/lib/rpcd/file.so`） |
 | 信息屏「禁用 IPv6」默认还是开 | `ipv6-default` 插件没跑，或 `/etc/config/e5-plugin-noipv6` 里 `enabled=1` |
 | 双栈站点只有 IPv4 能通、IPv6 解析不到 | `uci get passwall2.@global[0].remote_dns_query_strategy` 应为 `UseIP` |
-| `apk add easytier` 报 `kmod-tun` 不可满足 | 正常，别用 apk。走插件解包，TUN 是内建的 |
-| 刷完 ddns-go 自己起来了 | 看 `/etc/rc.d` 里有没有 `S*ddns-go`，以及 `zz-xxdiy-ddns-go-off` 有没有跑（`ls /etc/uci-defaults/`，跑完会自己删） |
-| 刷完 easytier 自己跑起来了 | 不该发生。查 `uci get easytier.@easytier[0].enabled` 是不是 `1`、`ps \| grep easytier`。`/etc/rc.d/S99easytier` 存在是**正常**的 |
-| easytier 页面白屏 | `luci-compat` / `luci-lua-runtime` 没装 |
