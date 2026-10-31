@@ -23,7 +23,10 @@ failed_names=""
 
 check() { # <描述> <命令>
     local desc=$1 cmd=$2
-    if eval "$cmd" >/dev/null 2>&1; then
+    # 一定要放进子 shell：检查脚本里会写 `{ echo ...; exit 1; }`，
+    # 在当前 shell 里 eval 的话那个 exit 会把整个 verify.sh 干掉，
+    # 结果就是「5 个 ✓ 之后无声退出 1」，连失败项都不打印。
+    if ( eval "$cmd" ) >/dev/null 2>&1; then
         printf '  \033[32m✓\033[0m %s\n' "$desc"
         pass=$((pass + 1))
     else
@@ -31,7 +34,7 @@ check() { # <描述> <命令>
         fail=$((fail + 1))
         failed_names="$failed_names
     - $desc"
-        eval "$cmd" 2>&1 | sed 's/^/      /' || true
+        ( eval "$cmd" ) 2>&1 | sed 's/^/      /' || true
     fi
 }
 
@@ -54,9 +57,11 @@ check "结尾 exit 0（否则 uci-defaults 不会被删，每次开机都跑）"
 tail -1 '$F' | grep -qx 'exit 0' || { tail -3 '$F'; exit 1; }
 "
 
-check "不碰 wan_ipv4 / filter_aaaa" "
-! grep -qF 'wan_ipv4' '$F' || { echo '不该动 wan_ipv4'; exit 1; }
-! grep -qF 'filter_aaaa' '$F' || { echo '不该动 filter_aaaa'; exit 1; }
+check "不碰 wan_ipv4 / filter_aaaa（只看非注释行）" "
+# 注意：这个文件的注释里正好写了『不动 wan_ipv4 / filter_aaaa』，
+# 直接全文 grep 会被自己的注释命中。先剥掉注释再查。
+if sed 's/#.*//' '$F' | grep -qF 'wan_ipv4'; then echo '不该动 wan_ipv4'; exit 1; fi
+if sed 's/#.*//' '$F' | grep -qF 'filter_aaaa'; then echo '不该动 filter_aaaa'; exit 1; fi
 "
 
 printf '\n'
