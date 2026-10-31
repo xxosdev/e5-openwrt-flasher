@@ -26,8 +26,22 @@ addons/xxdiy/
 ├── rebundle.sh              # 新 ext4.gz -> 新的刷机包 zip
 ├── lib/
 │   ├── common.sh            # 公共函数（日志、docker、挂载、fsck）
+│   ├── fetch-ipk.sh         # 下载 GitHub Release 资产、校验、解出 ipk 的 data.tar
+│   ├── ipk.py               # ipk = ar 里套 data.tar.gz，这里只取文件树
 │   └── sums.py              # 重算 SHA256SUMS（设备端 e5-upgrade 会校验）
 ├── plugins/
+│   ├── ddns-go/             # ddns-go + LuCI（第三方，解包铺文件）
+│   │   ├── assets.txt       # release 资产清单（URL 字节数 sha256 ipk 前缀）
+│   │   ├── fetch.sh
+│   │   ├── install.sh
+│   │   ├── overlay/etc/uci-defaults/zz-xxdiy-ddns-go-off
+│   │   └── tests/verify.sh
+│   ├── easytier/            # EasyTier + LuCI（第三方，解包铺文件，同上）
+│   │   ├── assets.txt
+│   │   ├── fetch.sh
+│   │   ├── install.sh
+│   │   ├── overlay/etc/uci-defaults/zz-xxdiy-easytier-off
+│   │   └── tests/verify.sh
 │   ├── filemanager/         # LuCI 文件管理器（官方源里有，apk add 即可）
 │   │   ├── install.sh
 │   │   └── tests/verify.sh
@@ -256,6 +270,51 @@ setting() { [ "$(uci -q get $CFG.settings.$1 || echo 1)" != 0 ] && echo 1 || ech
 
 想恢复成「默认禁用 IPv6」：把 `plugins/ipv6-default/` 删掉重新构建即可。
 
+## 第三方插件（ddns-go / easytier）为什么要解包
+
+这两个不在官方 25.12.5 源里，只有 GitHub Release。而且**不能走 `apk add`**：
+
+| 插件 | 情况 |
+|---|---|
+| `ddns-go` | 有 ipk（24.10）也有 apk（SNAPSHOT）两套，其实 apk 也能装 |
+| `easytier` | 包声明 `+kmod-tun`。我们内核 `CONFIG_TUN=y`（编进去了，`/dev/net/tun` 在，实测 `ip tuntap add` 能建），所以官方源里**根本没有 kmod-tun 这个包**，`apk add` 一定报依赖不可满足 |
+
+apk 3 也没有 `--no-depends` 这种忽略依赖的开关（force 系列只有 `--force-broken-world` 之类）。
+所以两个统一走「解包铺文件」：
+
+```
+assets.txt（URL + 字节数 + sha256 + ipk 前缀）
+  -> lib/fetch-ipk.sh  下载、校验、解 zip/tar
+  -> lib/ipk.py        只挑匹配前缀的 ipk，取出 data.tar
+  -> install.sh        用 tar 铺进 ext4
+```
+
+好处：绕开依赖解析、签名、postinst，也不受 24.10 / 22.03 与 25.12 的包格式差异影响。
+代价：**没有 apk 数据库记录**（`apk list` 里看不到它们），依赖要自己保证。
+
+sha256 取自 GitHub API 的 asset `digest` 字段，不是下载后自己算的 —— 所以清单可以先写好再跑。
+
+### 默认不开机自启
+
+两个插件都要求默认关闭，做法是两层：
+
+1. **构建时**：删掉 `/etc/rc.d/S*<服务>`、`K*<服务>`。我们没跑 postinst，本来就不会有，删是兜底。
+2. **开机时**：`zz-xxdiy-<服务>-off` 这个 uci-defaults 再 `stop` + `disable` 一次。
+
+第 2 层对 easytier 是**必需**的：上游 `/etc/uci-defaults/luci-easytier` 里明确写了
+`/etc/init.d/easytier enable`。uci-defaults 按文件名字典序跑，`zz-` 排在 `luci-` 之后才关得掉。
+（ddns-go 的 `99-luci-ddns-go` 只 chmod + 重启 rpcd，不 enable。）
+
+### 依赖
+
+| 插件 | 需要 | 镜像里 |
+|---|---|---|
+| `ddns-go` | `ca-bundle`（HTTPS 找 DNS 服务商） | 有，显式再装一次当文档 |
+| `easytier` | `luci-compat` + `luci-lua-runtime`（界面是 Lua CBI） | 有，但**插件顺序在前**，所以自己装 |
+
+> ⚠ 插件按目录名字典序跑：`ddns-go` → `easytier` → `filemanager` → `ipv6-default` → `passwall2`。
+> easytier 排在 passwall2 前面，不能指望 passwall2 顺手把 `luci-compat` 装上。
+
 ## 已知限制
 
 - **不能加内核模块**。OpenWrt 官方的 `kmods` feed 是给内核 **6.12.94** 编的，
@@ -278,3 +337,6 @@ setting() { [ "$(uci -q get $CFG.settings.$1 || echo 1)" != 0 ] && echo 1 || ech
 | 文件管理器能打开、点文件就报错 | `rpcd-mod-file` 在不在（`/usr/lib/rpcd/file.so`） |
 | 信息屏「禁用 IPv6」默认还是开 | `ipv6-default` 插件没跑，或 `/etc/config/e5-plugin-noipv6` 里 `enabled=1` |
 | 双栈站点只有 IPv4 能通、IPv6 解析不到 | `uci get passwall2.@global[0].remote_dns_query_strategy` 应为 `UseIP` |
+| `apk add easytier` 报 `kmod-tun` 不可满足 | 正常，别用 apk。走插件解包，TUN 是内建的 |
+| 刷完 ddns-go / easytier 自己起来了 | 看 `/etc/rc.d` 里有没有 `S*<服务>`，以及 `zz-xxdiy-*-off` 有没有跑（`ls /etc/uci-defaults/`） |
+| easytier 页面白屏 | `luci-compat` / `luci-lua-runtime` 没装 |

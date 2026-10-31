@@ -1,0 +1,22 @@
+#!/bin/sh
+# 让 easytier 默认**不开机自启**（用户要求）。
+#
+# 这一步是必须的，不是保险：
+#   上游的 /etc/uci-defaults/luci-easytier 里明确写了
+#       chmod +x /etc/init.d/easytier
+#       /etc/init.d/easytier enable
+#   首次开机它会把服务设成自启。uci-defaults 按文件名字典序跑，
+#   'l' < 'z'，所以我们这个 zz- 排在它后面，关得掉。
+#
+# 先 stop 再 disable：万一这个脚本跑的时候服务已经被拉起来了（比如镜像里
+# 已经带了个 rc.d 链接），也能停掉。
+
+SVC=easytier
+
+[ -x "/etc/init.d/$SVC" ] || exit 0
+
+/etc/init.d/$SVC stop 2>/dev/null
+/etc/init.d/$SVC disable 2>/dev/null
+echo "xxdiy: $SVC 已设为不开机自启"
+
+exit 0

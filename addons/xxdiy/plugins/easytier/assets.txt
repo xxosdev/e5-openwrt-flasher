@@ -1,0 +1,26 @@
+# addons/xxdiy/plugins/easytier/assets.txt
+#
+# EasyTier 后端 + 它的 LuCI 界面。不在官方 25.12.5 源里，只能从 GitHub Release 拿。
+#
+# 为什么用 22.03.7 那一份（里面是 ipk）而不是 SNAPSHOT 那一份（里面是 apk）：
+#   easytier 的包声明了 DEPENDS:=... +kmod-tun。我们的内核把 TUN 编进去了
+#   （CONFIG_TUN=y，/dev/net/tun 在，实测 ip tuntap add 能成功），所以官方源里
+#   根本没有 kmod-tun 这个包 —— apk add 会报依赖不可满足。
+#   解包铺文件不经过依赖解析，这个死结自然绕开。功能上什么都不缺。
+#
+# 包里除了 easytier 还有个 easytier-noweb 变体（不带内置 web 界面），我们不要。
+# 靠前缀 easytier_ 区分：easytier-noweb_ 以 "easytier-" 开头，匹配不上。
+#
+# 包内容（解出来铺进镜像的）：
+#   easytier                /usr/bin/easytier
+#   luci-app-easytier       /usr/lib/lua/luci/{controller,model/cbi,view}/easytier*
+#                           /etc/config/easytier、/etc/easytier/config.toml
+#                           /etc/init.d/easytier
+#                           /etc/uci-defaults/luci-easytier  ← 注意它会 enable 服务
+#                           /usr/share/easytier/{download,firewall,utils}.sh
+#                           /usr/share/rpcd/acl.d/luci-app-easytier.json
+#   luci-i18n-easytier-zh-cn 中文语言包
+#
+# 格式: <文件名> <URL> <字节数> <sha256> <ipk 前缀,逗号分隔>
+# sha256 取自 GitHub API 的 asset digest。
+EasyTier-v2.6.4-aarch64_generic-22.03.7.zip  https://github.com/EasyTier/luci-app-easytier/releases/download/v2.6.4/EasyTier-v2.6.4-aarch64_generic-22.03.7.zip  23156664  e3ccc015a97009081892f09543b0800c634ad0eb2c9834052ff4fd16fe2cf9a4  easytier_,luci-app-easytier_,luci-i18n-easytier-zh-cn_

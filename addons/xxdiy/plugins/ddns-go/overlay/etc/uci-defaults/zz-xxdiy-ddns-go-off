@@ -1,0 +1,22 @@
+#!/bin/sh
+# 让 ddns-go 默认**不开机自启**（用户要求）。
+#
+# 说明一下为什么还要这一步：
+#   我们铺文件时没跑 ipk 的 postinst，所以本来就不会生成 /etc/rc.d/S??ddns-go，
+#   服务天然不自启。这里再显式 stop + disable 一次，是为了兜住两种情况：
+#     * 上游以后在某个 uci-defaults 里加了 /etc/init.d/ddns-go enable
+#     * 别人拿一个已经 enable 过的镜像当底
+#
+# 前缀用 zz- 是为了排在 ddns-go 自己的 99-luci-ddns-go 之后（'z' > '9'）。
+#
+# uci-defaults 里的脚本返回 0 就会被删掉，所以只跑一次。
+
+SVC=ddns-go
+
+[ -x "/etc/init.d/$SVC" ] || exit 0
+
+/etc/init.d/$SVC stop 2>/dev/null
+/etc/init.d/$SVC disable 2>/dev/null
+echo "xxdiy: $SVC 已设为不开机自启"
+
+exit 0
