@@ -77,8 +77,8 @@ install.sh <镜像挂载点>
 
 ```sh
 # 需要 root（要 loop 挂载 ext4）、docker（跑 arm64 的 apk）、e2fsprogs、zip
-sudo bash addons/xxdiy/build.sh Openwrt_E5_Flasher_sleep14.zip
-sudo bash addons/xxdiy/rebundle.sh Openwrt_E5_Flasher_sleep14.zip \
+sudo bash addons/xxdiy/build.sh Openwrt_E5_Flasher_sleep16.zip
+sudo bash addons/xxdiy/rebundle.sh Openwrt_E5_Flasher_sleep16.zip \
      addons/xxdiy/work/openwrt-*.ext4.gz ./Openwrt_E5_Flasher_xxdiy.zip
 ```
 
@@ -98,7 +98,7 @@ sudo XXDIY_WRT_MIRROR=https://mirrors.ustc.edu.cn/openwrt \
 
 | 输入 | 说明 |
 |---|---|
-| `base_tag` | 上游刷机包的 tag，默认 `e5-sleep14` |
+| `base_tag` | 上游刷机包的 tag，默认 `e5-sleep16` |
 | `base_zip` | 直接给 zip 的 URL（留空则按 tag 自动找） |
 | `vanilla` | 勾上则额外产出一个「原版转存包」（上游 zip 原样另存，不装插件） |
 | `publish` | 勾上则建 **draft** Release（真机验过再手动 Publish） |
@@ -224,9 +224,15 @@ if _xxdiy_builtin or (mods:find(...) ...) then
 
 装完菜单出现在 **系统 → 文件管理器**（`admin/system/filemanager`）。
 
-> ⚠ **版本钉在 `26.303.28702~0229375`**。25.12.5 的 feed 是冻结的，一般不会变；
-> 万一 OpenWrt 重建了源，构建会明确报错而不是悄悄装成别的版本。
-> 换版本：`XXDIY_FILEMANAGER_VER=<新版本> bash addons/xxdiy/build.sh ...`
+> ⚠ **版本不钉死，交给 apk 从官方源解析**。
+> 曾经钉在 `26.303.28702~0229375`，理由是「25.12.5 是已发布版本，feed 冻结」——
+> 这个前提是错的。上游换基线（e5-sleep16）会重新生成 feed，LuCI 的包跟着往前走
+> （filemanager 已到 `26.304.26398~e969939`），apk 遇到「请求版本 ≠ 源里版本」直接
+> 判定不可满足，整个构建挂掉（CI run 42201795747 就是这么挂的）。不钉版本就没这问题。
+> filemanager 是纯 JS 应用，版本号只是 LuCI 的日期式版本（`26.304` = 2026 年第 304 天），
+> 升级不涉及接口变化，装哪个版本都一样。
+> 确实要复现某个具体版本时才覆盖：`XXDIY_FILEMANAGER_VER=<版本> bash addons/xxdiy/build.sh ...`
+> 装完的实际版本会在自检里打出来（`apk info -v`），可追溯。
 
 > 顺带一句：`CONFIG_PACKAGE_luci-app-filemanager=y` 是 **buildroot 编译期**的写法。
 > 我们不编译，所以等价操作就是 `apk add luci-app-filemanager`，装出来的东西一样。

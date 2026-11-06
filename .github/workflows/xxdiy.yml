@@ -10,7 +10,7 @@ on:
       base_tag:
         description: '上游刷机包的 tag（CharlesGool/e5-openwrt-flasher）'
         required: true
-        default: 'e5-sleep14'
+        default: 'e5-sleep16'
         type: string
       base_zip:
         description: '直接指定上游 zip 的 URL（留空则按 base_tag 自动找）'

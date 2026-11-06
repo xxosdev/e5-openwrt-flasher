@@ -117,7 +117,7 @@ orig_ver=$(tr -d '\n' < "$ver_file" 2>/dev/null || true)
 
 # 追加段长这样：xxdiy.20261031 2026-10-31 (说明)，和上游 "e5-sleep14 2026-10-26 (...)" 同款。
 # 说明可以用 XXDIY_VER_NOTE 覆盖；以后加新插件，记得来这行补一句。
-XXDIY_VER_NOTE=${XXDIY_VER_NOTE:-"passwall2 + xray-core; dnsmasq-full; kernel nft tproxy detection fixed"}
+XXDIY_VER_NOTE=${XXDIY_VER_NOTE:-"passwall2 + xray-core; dnsmasq-full; filemanager; IPv6 off by default; kernel nft tproxy detection fixed"}
 tag=$(printf '%s' "$VER" | sed -n 's/.*\(xxdiy\.[0-9]\{8\}\).*/\1/p')
 [ -n "$tag" ] || tag="xxdiy.$(TZ=Asia/Shanghai date +%Y%m%d)"
 d=${tag#xxdiy.}

@@ -29,18 +29,31 @@ export XXDIY_MNT=$MNT
 [ -d "$MNT/etc" ] || die "挂载点看起来不对：$MNT"
 ensure_docker
 
-# 版本钉死。25.12.5 是已发布版本，feed 是冻结的，不会自己变；
-# 万一哪天被重建，这里会明确报错，而不是悄悄装成另一个版本。
-# 要换版本：XXDIY_FILEMANAGER_VER=xxx bash addons/xxdiy/build.sh ...
-VER=${XXDIY_FILEMANAGER_VER:-26.303.28702~0229375}
-PKGS="luci-app-filemanager=$VER luci-i18n-filemanager-zh-cn=$VER"
+# 版本交给 apk 从官方源自己解析，不钉死。
+#
+# 曾经钉死过 26.303.28702~0229375，理由是「25.12.5 是已发布版本，feed 冻结」。
+# 这个前提是错的：上游每次换基线（e5-sleep16）都会重新生成 feed，LuCI 的包跟着
+# 往前走（filemanager 已到 26.304.26398~e969939），apk 遇到「请求版本 != 源里版本」
+# 直接判定不可满足，整个构建挂掉。不钉版本就没这个问题。
+#
+# filemanager 是纯 JS 应用（htdocs/ + menu.d + acl.d），版本号只是 LuCI 的日期式
+# 版本（26.304 = 2026 年第 304 天），升级不涉及接口变化，所以随便装哪个版本都行。
+#
+# 确实需要复现某个具体版本时才覆盖：
+#   XXDIY_FILEMANAGER_VER=xxx bash addons/xxdiy/build.sh ...
+VER=${XXDIY_FILEMANAGER_VER:-}
+if [ -n "$VER" ]; then
+    PKGS="luci-app-filemanager=$VER luci-i18n-filemanager-zh-cn=$VER"
+else
+    PKGS="luci-app-filemanager luci-i18n-filemanager-zh-cn"
+fi
 
 have_pkg() {
     run_in_root "apk --root /r info -e $1 >/dev/null 2>&1" >/dev/null 2>&1
 }
 
 # ---- 1. 装 ---------------------------------------------------------------
-step "1/2 装 luci-app-filemanager $VER"
+step "1/2 装 luci-app-filemanager ${VER:-(源里最新)}"
 if have_pkg luci-app-filemanager; then
     log "已经装过了，跳过"
 else
@@ -64,7 +77,7 @@ if ! apk --root /r add $XXDIY_FM_PKGS; then
     restore
     echo "!! 装不上。先看源里现在有哪些版本："
     apk --root /r search -v luci-app-filemanager 2>&1 | head -3 || true
-    echo "   版本对不上就设 XXDIY_FILEMANAGER_VER 覆盖"
+    echo "   （未钉版本时还装不上，通常是官方源不可达或 luci-base 依赖冲突）"
     exit 1
 fi
 restore
